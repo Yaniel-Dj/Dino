@@ -25,36 +25,15 @@
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
-  .ayuda {
-    position: fixed;
-    bottom: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 12px;
-    color: #6a6a6a;
-    background: rgba(255,255,255,0.7);
-    padding: 5px 12px;
-    border-radius: 6px;
-    text-align: center;
-    letter-spacing: .5px;
-    line-height: 1.6;
-    z-index: 10;
-    pointer-events: none;
-    white-space: nowrap;
-  }
-  .ayuda b { color: #3a3a3a; }
 </style>
 </head>
 <body>
 
 <canvas id="game"></canvas>
-<div class="ayuda">
-  <b>ESPACIO</b> / <b>↑</b> / <b>clic</b> → saltar &nbsp;·&nbsp; <b>↓</b> → agacharse
-</div>
 
 <script>
 /* ============================================================
-   DINO RUNNER — Fullscreen HD Edition
+   DINO RUNNER — Fullscreen HD Edition (sin agacharse)
    ============================================================ */
 
 const canvas = document.getElementById('game');
@@ -85,9 +64,8 @@ const VELOCIDAD_MAXIMA  = 14;
 const ACELERACION       = 0.0012;
 
 const ALTO_DINO = 48, ANCHO_DINO = 44;
-const ALTO_DINO_AGACHADO = 30, ANCHO_DINO_AGACHADO = 60;
 
-const INTERVALO_METEORO   = 500;
+const INTERVALO_METORO   = 500;
 const CAMBIO_ESCENARIO    = 400;
 const DURACION_TRANSICION = 2.5;
 
@@ -159,13 +137,6 @@ const DINO_CORRE_2 = [
   '     DLLLLLD          ','     DGGGGD           ','     DD  DD           ',
   '     DD  DD           ','         DD           ','         DD           '
 ];
-const DINO_AGACHADO = [
-  '                              ','                       DDDDDDD','                       DGGGGGD',
-  '                       DGWGGGD','                       DGGGGGD','                      DGGGGGGD',
-  '              DGGGGGGGGGGGGGGD','              DGGGGGGGGGGGGGGD',' D            DGGGGGGGGGGGGGGD',
-  'DDD          DGGGGGGGGGGGGGGGD','DGGGGGGGGGGGGGGGGGGGGGGGGGGGGD','DLLLLLLLLLLLLLLLLLLLLLLLLLLLLD',
-  '  DLLLLLLLLLLLLLLLLLLLLLLLD    ','    DDDD   DDDD               ','    DD      DDD               '
-];
 
 function crearSprite(mapa) {
   const PALETA = { 'D': C_DARK, 'G': C_BODY, 'L': C_LIGHT, 'W': C_EYE };
@@ -186,7 +157,6 @@ function crearSprite(mapa) {
   return c;
 }
 const SPRITES_CORRE = [crearSprite(DINO_CORRE_1), crearSprite(DINO_CORRE_2)];
-const SPRITE_AGACHADO = crearSprite(DINO_AGACHADO);
 
 /* ============================================================
    ESCENARIOS
@@ -350,7 +320,7 @@ function reiniciar() {
   obstaculos = [];
   proximoObstaculo = 520;
   emergencia = 0;
-  siguienteMeteoro = INTERVALO_METEORO;
+  siguienteMeteoro = INTERVALO_METORO;
   meteoros = [];
   particulas = [];
   temblor = 0;
@@ -363,7 +333,7 @@ function reiniciar() {
   siguienteCambioEscenario = CAMBIO_ESCENARIO;
   notificacion = { texto: '', timer: 0 };
   esc = blendEscenarios(ESCENARIOS.dia, ESCENARIOS.dia, 1);
-  dino = { x: 60, y: SUELO_Y-ALTO_DINO, vy: 0, enSuelo: true, agachado: false };
+  dino = { x: 60, y: SUELO_Y-ALTO_DINO, vy: 0, enSuelo: true };
   nubes = [
     { x: W*0.28, y: 70,  v: 0.30, s: 1.0 },
     { x: W*0.68, y: 115, v: 0.20, s: 0.8 },
@@ -824,12 +794,8 @@ function dibujarDino() {
     ctx.restore();
     return;
   }
-  if (dino.agachado && dino.enSuelo) {
-    ctx.drawImage(SPRITE_AGACHADO, Math.round(dino.x), Math.round(SUELO_Y - ALTO_DINO_AGACHADO));
-  } else {
-    const frame = dino.enSuelo ? Math.floor(animacion)%2 : 0;
-    ctx.drawImage(SPRITES_CORRE[frame], Math.round(dino.x), Math.round(dino.y));
-  }
+  const frame = dino.enSuelo ? Math.floor(animacion)%2 : 0;
+  ctx.drawImage(SPRITES_CORRE[frame], Math.round(dino.x), Math.round(dino.y));
 }
 
 /* ============================================================
@@ -984,15 +950,11 @@ function saltar() {
   if (dino.enSuelo) {
     dino.vy = IMPULSO_SALTO;
     dino.enSuelo = false;
-    dino.agachado = false;
     crearPolvo(dino.x + ANCHO_DINO/2, SUELO_Y - 2, 6);
   }
 }
 
 function cajaDino() {
-  if (dino.agachado && dino.enSuelo) {
-    return { x: dino.x+5, y: SUELO_Y-ALTO_DINO_AGACHADO+5, w: ANCHO_DINO_AGACHADO-12, h: ALTO_DINO_AGACHADO-10 };
-  }
   return { x: dino.x+9, y: dino.y+5, w: ANCHO_DINO-18, h: ALTO_DINO-8 };
 }
 
@@ -1075,7 +1037,7 @@ function actualizar(dt) {
 
   if (puntos >= siguienteMeteoro) {
     crearMeteoro();
-    siguienteMeteoro += INTERVALO_METEORO;
+    siguienteMeteoro += INTERVALO_METORO;
   }
   for (let i = meteoros.length-1; i >= 0; i--) {
     const m = meteoros[i];
@@ -1145,17 +1107,10 @@ function accion() {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (['Space','ArrowUp','ArrowDown','KeyW','KeyS'].includes(e.code)) e.preventDefault();
-  if (e.code === 'ArrowDown' || e.code === 'KeyS') {
-    if (estado === 'jugando') dino.agachado = true;
-    return;
-  }
+  if (['Space','ArrowUp','KeyW'].includes(e.code)) e.preventDefault();
   if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
     if (!e.repeat) accion();
   }
-});
-window.addEventListener('keyup', (e) => {
-  if (e.code === 'ArrowDown' || e.code === 'KeyS') dino.agachado = false;
 });
 canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); accion(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) ultimoTiempo = 0; });
@@ -1167,7 +1122,6 @@ window.addEventListener('resize', () => {
   _cacheKey = '';
   initParticulasClima();
   if (dino && dino.enSuelo) dino.y = SUELO_Y - ALTO_DINO;
-  // Reposicionar nubes dentro del nuevo ancho
   if (nubes) {
     for (const n of nubes) {
       if (n.x > W) n.x = W * Math.random();
