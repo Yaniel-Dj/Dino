@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>🦖 Dino Runner — HD Render</title>
+<title>🦖 Dino Runner — Fullscreen HD</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -13,34 +13,36 @@
     overflow: hidden;
     touch-action: manipulation;
   }
-  body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    background: radial-gradient(circle at 50% 30%, #ffffff 0%, #e9eaee 100%);
-  }
   canvas {
     display: block;
-    width: min(96vw, 900px);
-    height: auto;
-    border-radius: 12px;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw;
+    height: 100vh;
     background: #f7f7f7;
-    box-shadow: 0 10px 40px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08);
     cursor: pointer;
     user-select: none;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
   .ayuda {
+    position: fixed;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
     font-size: 12px;
-    color: #9a9a9a;
+    color: #6a6a6a;
+    background: rgba(255,255,255,0.7);
+    padding: 5px 12px;
+    border-radius: 6px;
     text-align: center;
     letter-spacing: .5px;
     line-height: 1.6;
+    z-index: 10;
+    pointer-events: none;
+    white-space: nowrap;
   }
-  .ayuda b { color: #6a6a6a; }
+  .ayuda b { color: #3a3a3a; }
 </style>
 </head>
 <body>
@@ -52,11 +54,30 @@
 
 <script>
 /* ============================================================
-   DINO RUNNER — HD Render Edition
+   DINO RUNNER — Fullscreen HD Edition
    ============================================================ */
 
-const W = 800, H = 300, SUELO_Y = 245, ESCALA = 2;
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha: false });
 
+/* ---------- Dimensiones dinámicas ---------- */
+let W, H, SUELO_Y, DPR;
+
+function calcularDimensiones() {
+  W = window.innerWidth;
+  H = window.innerHeight;
+  SUELO_Y = H - 55;
+  DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+  canvas.width  = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.scale(DPR, DPR);
+  ctx.imageSmoothingEnabled = false;
+}
+calcularDimensiones();
+
+/* ---------- Constantes de juego ---------- */
+const ESCALA = 2;
 const GRAVEDAD          = 0.75;
 const IMPULSO_SALTO     = -13;
 const VELOCIDAD_INICIAL = 6;
@@ -77,19 +98,9 @@ const C_EYE   = '#ffffff';
 const C_CACTUS = '#2f5f2f';
 
 /* ============================================================
-   CANVAS HD — resolución interna x devicePixelRatio
+   VIGNETTE
    ============================================================ */
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d', { alpha: false });
-
-const DPR = Math.min(window.devicePixelRatio || 1, 2.5);
-canvas.width  = Math.round(W * DPR);
-canvas.height = Math.round(H * DPR);
-ctx.scale(DPR, DPR);
-ctx.imageSmoothingEnabled = false;
-
-// Vignette pre-renderizada a resolución DPR
-const vignetteCanvas = (() => {
+function crearVignette() {
   const c = document.createElement('canvas');
   c.width = Math.round(W * DPR);
   c.height = Math.round(H * DPR);
@@ -101,10 +112,11 @@ const vignetteCanvas = (() => {
   g.fillStyle = grad;
   g.fillRect(0, 0, W, H);
   return c;
-})();
+}
+let vignetteCanvas = crearVignette();
 
 /* ============================================================
-   GLOW SPRITES (para efectos aditivos y luces)
+   GLOW SPRITES
    ============================================================ */
 function crearGlow(r, g, b, size = 128) {
   const c = document.createElement('canvas');
@@ -186,7 +198,7 @@ const ESCENARIOS = {
     tierraTop: [240, 230, 208], tierraBot: [216, 200, 168],
     hierba: [90, 160, 58], hierbaCorta: [74, 136, 48],
     solColor: [255, 245, 200], solHalo: [255, 235, 160],
-    solAlpha: 0.85, haloAlpha: 0.35, solY: 65,
+    solAlpha: 0.85, haloAlpha: 0.35, solY: 0.22,
     luna: 0, estrellas: 0, lluvia: 0, nieve: 0, calor: 0,
     texto: [83, 83, 83], textoSuave: [168, 168, 168]
   },
@@ -196,7 +208,7 @@ const ESCENARIOS = {
     tierraTop: [220, 180, 130], tierraBot: [180, 140, 100],
     hierba: [180, 120, 60], hierbaCorta: [150, 100, 50],
     solColor: [255, 180, 80], solHalo: [255, 120, 50],
-    solAlpha: 0.9, haloAlpha: 0.45, solY: 130,
+    solAlpha: 0.9, haloAlpha: 0.45, solY: 0.42,
     luna: 0, estrellas: 0, lluvia: 0, nieve: 0, calor: 0,
     texto: [80, 40, 20], textoSuave: [180, 130, 90]
   },
@@ -206,7 +218,7 @@ const ESCENARIOS = {
     tierraTop: [50, 55, 85], tierraBot: [30, 35, 60],
     hierba: [50, 95, 70], hierbaCorta: [35, 70, 50],
     solColor: [240, 240, 255], solHalo: [200, 220, 255],
-    solAlpha: 0.95, haloAlpha: 0.30, solY: 60,
+    solAlpha: 0.95, haloAlpha: 0.30, solY: 0.20,
     luna: 1, estrellas: 1, lluvia: 0, nieve: 0, calor: 0,
     texto: [220, 220, 255], textoSuave: [150, 160, 200]
   },
@@ -216,7 +228,7 @@ const ESCENARIOS = {
     tierraTop: [220, 200, 180], tierraBot: [180, 160, 140],
     hierba: [140, 165, 100], hierbaCorta: [110, 130, 80],
     solColor: [255, 220, 180], solHalo: [255, 180, 150],
-    solAlpha: 0.9, haloAlpha: 0.40, solY: 175,
+    solAlpha: 0.9, haloAlpha: 0.40, solY: 0.55,
     luna: 0, estrellas: 0.35, lluvia: 0, nieve: 0, calor: 0,
     texto: [100, 70, 80], textoSuave: [170, 150, 150]
   },
@@ -226,7 +238,7 @@ const ESCENARIOS = {
     tierraTop: [150, 155, 165], tierraBot: [100, 105, 120],
     hierba: [65, 105, 75], hierbaCorta: [50, 80, 55],
     solColor: [200, 200, 210], solHalo: [150, 150, 170],
-    solAlpha: 0.30, haloAlpha: 0.20, solY: 80,
+    solAlpha: 0.30, haloAlpha: 0.20, solY: 0.25,
     luna: 0, estrellas: 0, lluvia: 1, nieve: 0, calor: 0,
     texto: [200, 210, 230], textoSuave: [130, 140, 170]
   },
@@ -236,7 +248,7 @@ const ESCENARIOS = {
     tierraTop: [245, 250, 255], tierraBot: [220, 230, 245],
     hierba: [180, 200, 220], hierbaCorta: [160, 180, 200],
     solColor: [255, 255, 255], solHalo: [230, 240, 255],
-    solAlpha: 0.50, haloAlpha: 0.35, solY: 70,
+    solAlpha: 0.50, haloAlpha: 0.35, solY: 0.22,
     luna: 0, estrellas: 0, lluvia: 0, nieve: 1, calor: 0,
     texto: [60, 80, 120], textoSuave: [140, 160, 190]
   },
@@ -246,7 +258,7 @@ const ESCENARIOS = {
     tierraTop: [240, 210, 160], tierraBot: [210, 170, 110],
     hierba: [180, 160, 60], hierbaCorta: [150, 130, 50],
     solColor: [255, 230, 100], solHalo: [255, 200, 50],
-    solAlpha: 1.0, haloAlpha: 0.55, solY: 50,
+    solAlpha: 1.0, haloAlpha: 0.55, solY: 0.17,
     luna: 0, estrellas: 0, lluvia: 0, nieve: 0, calor: 1,
     texto: [120, 60, 20], textoSuave: [200, 150, 100]
   }
@@ -312,7 +324,7 @@ function initParticulasClima() {
   estrellas = [];
   for (let i = 0; i < 70; i++) {
     estrellas.push({
-      x: Math.random()*W, y: Math.random()*145,
+      x: Math.random()*W, y: Math.random()*(SUELO_Y*0.55),
       r: 0.4+Math.random()*1.4, brillo: 0.45+Math.random()*0.55,
       fase: Math.random()*Math.PI*2, vel: 0.0008+Math.random()*0.002
     });
@@ -320,7 +332,8 @@ function initParticulasClima() {
   ondasCalor = [];
   for (let i = 0; i < 14; i++) {
     ondasCalor.push({
-      x: Math.random()*W, y: 60+Math.random()*170,
+      x: Math.random()*W,
+      y: SUELO_Y*0.25 + Math.random()*(SUELO_Y*0.6),
       w: 25+Math.random()*45, fase: Math.random()*Math.PI*2,
       vel: 0.001+Math.random()*0.0015
     });
@@ -337,7 +350,7 @@ function reiniciar() {
   obstaculos = [];
   proximoObstaculo = 520;
   emergencia = 0;
-  siguienteMeteoro = INTERVALO_METORO_SAFE();
+  siguienteMeteoro = INTERVALO_METEORO;
   meteoros = [];
   particulas = [];
   temblor = 0;
@@ -352,12 +365,11 @@ function reiniciar() {
   esc = blendEscenarios(ESCENARIOS.dia, ESCENARIOS.dia, 1);
   dino = { x: 60, y: SUELO_Y-ALTO_DINO, vy: 0, enSuelo: true, agachado: false };
   nubes = [
-    { x: 220, y: 70,  v: 0.30, s: 1.0 },
-    { x: 540, y: 115, v: 0.20, s: 0.8 },
-    { x: 760, y: 55,  v: 0.35, s: 1.1 }
+    { x: W*0.28, y: 70,  v: 0.30, s: 1.0 },
+    { x: W*0.68, y: 115, v: 0.20, s: 0.8 },
+    { x: W*0.95, y: 55,  v: 0.35, s: 1.1 }
   ];
 }
-function INTERVALO_METORO_SAFE(){ return INTERVALO_METEORO; }
 
 /* ============================================================
    OBSTÁCULOS
@@ -380,7 +392,7 @@ function crearMeteoro() {
   obstaculos = [];
   bloqueoObstaculos = true;
   meteoros.push({
-    x: 500+Math.random()*240, y: -100, vy: 0,
+    x: W*0.55 + Math.random()*W*0.35, y: -100, vy: 0,
     fase: 'aviso', timer: 0, duracionAviso: 78
   });
 }
@@ -429,7 +441,7 @@ let _cacheSuelo = null;
 let _cacheKey = '';
 
 function syncCache() {
-  const k = escenarioActual + '|' + escenarioAnterior + '|' + Math.round(transicionEscenario*50);
+  const k = escenarioActual + '|' + escenarioAnterior + '|' + Math.round(transicionEscenario*50) + '|' + W + 'x' + H;
   if (k !== _cacheKey) {
     _cacheKey = k;
     _cacheCielo = null;
@@ -466,7 +478,6 @@ function dibujarCielo() {
 function dibujarEstrellas() {
   if (esc.estrellas < 0.05) return;
   const t = performance.now();
-  ctx.beginPath();
   for (const e of estrellas) {
     const tw = 0.55 + 0.45*Math.sin(t*e.vel + e.fase);
     const a = esc.estrellas * e.brillo * tw;
@@ -478,8 +489,7 @@ function dibujarEstrellas() {
 }
 
 function dibujarAstro() {
-  const x = 690, y = esc.solY;
-  // Glow exterior suave
+  const x = W - 110, y = esc.solY * Math.min(SUELO_Y, 500);
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = esc.haloAlpha;
@@ -488,11 +498,9 @@ function dibujarAstro() {
                 x-glowR, y-glowR, glowR*2, glowR*2);
   ctx.restore();
 
-  // Cuerpo del sol/luna
   ctx.fillStyle = rgb(esc.solColor, esc.solAlpha);
   ctx.beginPath(); ctx.arc(x, y, 30, 0, Math.PI*2); ctx.fill();
 
-  // Cráteres de la luna
   if (esc.luna > 0.25) {
     ctx.fillStyle = `rgba(180,190,215,${esc.luna*0.55})`;
     ctx.beginPath(); ctx.arc(x-8, y-5, 4.2, 0, Math.PI*2); ctx.fill();
@@ -519,7 +527,8 @@ function dibujarOndasCalor() {
 function dibujarColinas() {
   const off = (sueloOffset*0.28) % 320;
   ctx.fillStyle = rgba4(esc.colinas);
-  for (let i = -1; i < 5; i++) {
+  const vueltas = Math.ceil(W/320) + 2;
+  for (let i = -1; i < vueltas; i++) {
     const x = i*320 - off;
     ctx.beginPath(); ctx.arc(x+90,  SUELO_Y, 110, Math.PI, 0); ctx.fill();
     ctx.beginPath(); ctx.arc(x+250, SUELO_Y, 75,  Math.PI, 0); ctx.fill();
@@ -530,9 +539,9 @@ function dibujarNube(n) {
   const s = n.s;
   ctx.fillStyle = rgba4(esc.nube);
   ctx.beginPath();
-  ctx.ellipse(n.x,          n.y,         26*s, 11*s, 0, 0, Math.PI*2);
-  ctx.ellipse(n.x+20*s,     n.y-7*s,     17*s,  9*s, 0, 0, Math.PI*2);
-  ctx.ellipse(n.x-19*s,     n.y-3*s,     15*s,  8*s, 0, 0, Math.PI*2);
+  ctx.ellipse(n.x,      n.y,     26*s, 11*s, 0, 0, Math.PI*2);
+  ctx.ellipse(n.x+20*s, n.y-7*s, 17*s,  9*s, 0, 0, Math.PI*2);
+  ctx.ellipse(n.x-19*s, n.y-3*s, 15*s,  8*s, 0, 0, Math.PI*2);
   ctx.fill();
 }
 
@@ -550,7 +559,6 @@ function dibujarSuelo() {
   ctx.fillStyle = lineOscura; ctx.fillRect(0, SUELO_Y, W, 2);
   ctx.fillStyle = lineClara;  ctx.fillRect(0, SUELO_Y-1, W, 1);
 
-  // Hierba
   const offGrass = sueloOffset % 85;
   const h1 = rgb(esc.hierba);
   const h2 = rgb(esc.hierbaCorta);
@@ -564,7 +572,6 @@ function dibujarSuelo() {
     ctx.beginPath(); ctx.moveTo(x+54, SUELO_Y+1); ctx.lineTo(x+55, SUELO_Y-8); ctx.lineTo(x+56, SUELO_Y+1); ctx.fill();
   }
 
-  // Piedritas
   const offPebble = (sueloOffset*0.9) % 55;
   for (let x = -offPebble; x < W+55; x += 55) {
     ctx.fillStyle = brillo > 130 ? '#b8a880' : '#404a70';
@@ -575,7 +582,6 @@ function dibujarSuelo() {
     ctx.beginPath(); ctx.ellipse(x+42, SUELO_Y+22, 3, 2, 0, 0, Math.PI*2); ctx.fill();
   }
 
-  // Guiones
   const offDash = (sueloOffset*1.15) % 50;
   ctx.fillStyle = brillo > 130 ? 'rgba(130,115,85,0.6)' : 'rgba(150,170,220,0.4)';
   for (let x = -offDash; x < W+50; x += 50) {
@@ -633,19 +639,16 @@ function dibujarCactus(o) {
   const h = o.alto;
   for (let i = 0; i < o.cantidad; i++) {
     const cx = o.x + i*24, y = o.y;
-    // Sombra
     ctx.fillStyle = 'rgba(0,0,0,0.18)';
     ctx.fillRect(cx+2, y+h*0.30, 6, h*0.20+5);
     ctx.fillRect(cx+16, y+h*0.20, 6, h*0.20+5);
     ctx.fillRect(cx+8, y, 8, h);
-    // Cuerpo
     ctx.fillStyle = C_CACTUS;
     ctx.fillRect(cx+8, y, 8, h);
     ctx.fillRect(cx+2, y+h*0.30, 6, h*0.20+5);
     ctx.fillRect(cx+2, y+h*0.50, 8, 5);
     ctx.fillRect(cx+16, y+h*0.20, 6, h*0.20+5);
     ctx.fillRect(cx+14, y+h*0.40, 8, 5);
-    // Highlight derecha
     ctx.fillStyle = 'rgba(140,210,140,0.35)';
     ctx.fillRect(cx+14, y+2, 2, h-4);
     ctx.fillRect(cx+6, y+h*0.32, 1.5, h*0.18);
@@ -681,7 +684,6 @@ function dibujarFuego(o) {
   const t = o.animFuego || 0;
   const f1 = Math.sin(t*0.15)*4, f2 = Math.cos(t*0.22)*5, f3 = Math.sin(t*0.31)*3;
 
-  // Glow cálido detrás
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = 0.55;
@@ -757,7 +759,6 @@ function dibujarAvisoMeteoro(m) {
 }
 
 function dibujarMeteoro(m) {
-  // Glow aditivo detrás
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   ctx.globalAlpha = 0.9;
@@ -765,7 +766,6 @@ function dibujarMeteoro(m) {
   ctx.drawImage(GLOW_ORANGE, m.x-gr, m.y-gr, gr*2, gr*2);
   ctx.restore();
 
-  // Estela
   const grad = ctx.createLinearGradient(m.x, m.y-140, m.x, m.y);
   grad.addColorStop(0,   'rgba(255,100,0,0)');
   grad.addColorStop(0.7, 'rgba(255,100,0,0.7)');
@@ -773,7 +773,6 @@ function dibujarMeteoro(m) {
   ctx.strokeStyle = grad; ctx.lineWidth = 16; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(m.x, m.y-140); ctx.lineTo(m.x, m.y); ctx.stroke();
 
-  // Cabeza
   const gradC = ctx.createRadialGradient(m.x-5, m.y-5, 2, m.x, m.y, 20);
   gradC.addColorStop(0,   '#fff2a0');
   gradC.addColorStop(0.35,'#ff8800');
@@ -781,7 +780,6 @@ function dibujarMeteoro(m) {
   ctx.fillStyle = gradC;
   ctx.beginPath(); ctx.arc(m.x, m.y, 20, 0, Math.PI*2); ctx.fill();
 
-  // Chispas
   for (let i = 0; i < 5; i++) {
     const ang = Math.random()*Math.PI*2;
     const d = 18 + Math.random()*22;
@@ -840,7 +838,6 @@ function dibujarDino() {
 function dibujarParticulas() {
   if (particulas.length === 0) return;
 
-  // Fuego (aditivo)
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   for (const p of particulas) {
@@ -852,7 +849,6 @@ function dibujarParticulas() {
   }
   ctx.restore();
 
-  // Humo (normal, gris)
   for (const p of particulas) {
     if (p.tipo !== 'humo') continue;
     const al = Math.max(0, p.vida / p.vidaMax);
@@ -861,9 +857,7 @@ function dibujarParticulas() {
     ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fill();
   }
 
-  // Polvo
   ctx.save();
-  ctx.globalAlpha = 0.55;
   for (const p of particulas) {
     if (p.tipo !== 'polvo') continue;
     const al = Math.max(0, p.vida / p.vidaMax);
@@ -894,7 +888,7 @@ function dibujarNotificacion() {
   ctx.textAlign = 'center';
   ctx.font = 'bold 22px "Courier New", monospace';
   ctx.fillStyle = rgb(esc.texto);
-  ctx.fillText(notificacion.texto, W/2, 60);
+  ctx.fillText(notificacion.texto, W/2, Math.min(80, H*0.12));
   ctx.restore();
 }
 
@@ -918,31 +912,25 @@ function dibujar() {
   for (const n of nubes) dibujarNube(n);
   dibujarSuelo();
 
-  // Meteoros
   for (const m of meteoros) {
     if (m.fase === 'aviso')        dibujarAvisoMeteoro(m);
     else if (m.fase === 'cayendo') dibujarMeteoro(m);
   }
 
-  // Obstáculos
   for (const o of obstaculos) {
     if (o.tipo === 'pajaro')     dibujarPajaro(o);
     else if (o.tipo === 'fuego') dibujarFuego(o);
     else                          dibujarCactus(o);
   }
 
-  // Partículas
   dibujarParticulas();
 
-  // Dino
   dibujarSombraDino();
   dibujarDino();
 
-  // Clima delante
   dibujarNieve();
   dibujarLluvia();
 
-  // Tintes atmosféricos
   if (esc.lluvia > 0.05) {
     ctx.fillStyle = `rgba(40,50,80,${esc.lluvia*0.10})`;
     ctx.fillRect(0, 0, W, H);
@@ -956,7 +944,6 @@ function dibujar() {
     ctx.fillRect(0, 0, W, H);
   }
 
-  // Vignette (dibujada a resolución nativa, sin escalar)
   ctx.drawImage(vignetteCanvas, 0, 0, W, H);
 
   dibujarHUD();
@@ -968,17 +955,17 @@ function dibujar() {
     ctx.textAlign = 'center';
     ctx.font = 'bold 15px "Courier New", monospace';
     ctx.fillStyle = rgb(esc.textoSuave);
-    ctx.fillText('PULSA ESPACIO PARA EMPEZAR', W/2, 105);
+    ctx.fillText('PULSA ESPACIO PARA EMPEZAR', W/2, H*0.35);
     ctx.globalAlpha = 1;
   }
   if (estado === 'gameover') {
     ctx.textAlign = 'center';
     ctx.fillStyle = rgb(esc.texto);
     ctx.font = 'bold 30px "Courier New", monospace';
-    ctx.fillText('GAME OVER', W/2, 105);
+    ctx.fillText('GAME OVER', W/2, H*0.35);
     ctx.font = 'bold 14px "Courier New", monospace';
     ctx.fillStyle = rgb(esc.textoSuave);
-    ctx.fillText('PULSA ESPACIO PARA REINTENTAR', W/2, 135);
+    ctx.fillText('PULSA ESPACIO PARA REINTENTAR', W/2, H*0.35 + 30);
   }
 
   ctx.restore();
@@ -1034,7 +1021,7 @@ function actualizar(dt) {
     n.x -= n.v * dt * factorNubes * (velocidad / VELOCIDAD_INICIAL);
     if (n.x < -70) {
       n.x = W + 60 + Math.random()*220;
-      n.y = 40 + Math.random()*95;
+      n.y = 40 + Math.random()*(SUELO_Y*0.35);
       n.s = 0.7 + Math.random()*0.5;
     }
   }
@@ -1172,6 +1159,30 @@ window.addEventListener('keyup', (e) => {
 });
 canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); accion(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) ultimoTiempo = 0; });
+
+/* ---------- Resize ---------- */
+window.addEventListener('resize', () => {
+  calcularDimensiones();
+  vignetteCanvas = crearVignette();
+  _cacheKey = '';
+  initParticulasClima();
+  if (dino && dino.enSuelo) dino.y = SUELO_Y - ALTO_DINO;
+  // Reposicionar nubes dentro del nuevo ancho
+  if (nubes) {
+    for (const n of nubes) {
+      if (n.x > W) n.x = W * Math.random();
+    }
+  }
+});
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => {
+    calcularDimensiones();
+    vignetteCanvas = crearVignette();
+    _cacheKey = '';
+    initParticulasClima();
+    if (dino && dino.enSuelo) dino.y = SUELO_Y - ALTO_DINO;
+  }, 120);
+});
 
 /* ============================================================
    ARRANCAR
