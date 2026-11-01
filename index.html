@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🦖 Dino Runner — HD Render</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: #f7f7f7;
+    font-family: 'Courier New', Courier, monospace;
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: radial-gradient(circle at 50% 30%, #ffffff 0%, #e9eaee 100%);
+  }
+  canvas {
+    display: block;
+    width: min(96vw, 900px);
+    height: auto;
+    border-radius: 12px;
+    background: #f7f7f7;
+    box-shadow: 0 10px 40px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .ayuda {
+    font-size: 12px;
+    color: #9a9a9a;
+    text-align: center;
+    letter-spacing: .5px;
+    line-height: 1.6;
+  }
+  .ayuda b { color: #6a6a6a; }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+<div class="ayuda">
+  <b>ESPACIO</b> / <b>↑</b> / <b>clic</b> → saltar &nbsp;·&nbsp; <b>↓</b> → agacharse
+</div>
+
+<script>
+/* ============================================================
+   DINO RUNNER — HD Render Edition
+   ============================================================ */
+
+const W = 800, H = 300, SUELO_Y = 245, ESCALA = 2;
+
+const GRAVEDAD          = 0.75;
+const IMPULSO_SALTO     = -13;
+const VELOCIDAD_INICIAL = 6;
+const VELOCIDAD_MAXIMA  = 14;
+const ACELERACION       = 0.0012;
+
+const ALTO_DINO = 48, ANCHO_DINO = 44;
+const ALTO_DINO_AGACHADO = 30, ANCHO_DINO_AGACHADO = 60;
+
+const INTERVALO_METEORO   = 500;
+const CAMBIO_ESCENARIO    = 400;
+const DURACION_TRANSICION = 2.5;
+
+const C_DARK  = '#2a5a2a';
+const C_BODY  = '#4a9a4a';
+const C_LIGHT = '#7ac87a';
+const C_EYE   = '#ffffff';
+const C_CACTUS = '#2f5f2f';
+
+/* ============================================================
+   CANVAS HD — resolución interna x devicePixelRatio
+   ============================================================ */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+const DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+canvas.width  = Math.round(W * DPR);
+canvas.height = Math.round(H * DPR);
+ctx.scale(DPR, DPR);
+ctx.imageSmoothingEnabled = false;
+
+// Vignette pre-renderizada a resolución DPR
+const vignetteCanvas = (() => {
+  const c = document.createElement('canvas');
+  c.width = Math.round(W * DPR);
+  c.height = Math.round(H * DPR);
+  const g = c.getContext('2d');
+  g.scale(DPR, DPR);
+  const grad = g.createRadialGradient(W/2, H*0.55, H*0.35, W/2, H*0.55, H*0.95);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.30)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, W, H);
+  return c;
+})();
+
+/* ============================================================
+   GLOW SPRITES (para efectos aditivos y luces)
+   ============================================================ */
+function crearGlow(r, g, b, size = 128) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const gx = c.getContext('2d');
+  const grad = gx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  grad.addColorStop(0,    `rgba(${r},${g},${b},1)`);
+  grad.addColorStop(0.25, `rgba(${r},${g},${b},0.75)`);
+  grad.addColorStop(0.6,  `rgba(${r},${g},${b},0.20)`);
+  grad.addColorStop(1,    `rgba(${r},${g},${b},0)`);
+  gx.fillStyle = grad;
+  gx.fillRect(0, 0, size, size);
+  return c;
+}
+const GLOW_ORANGE = crearGlow(255, 140, 30);
+const GLOW_YELLOW = crearGlow(255, 230, 120);
+const GLOW_WHITE  = crearGlow(255, 255, 255);
+const GLOW_DUST   = crearGlow(200, 190, 170);
+
+/* ============================================================
+   SPRITES DINO
+   ============================================================ */
+const DINO_CORRE_1 = [
+  '                      ','              DDDDDDDD','              DGGGGGGD',
+  '              DGWGGGGD','              DGGGGGGD','             DGGGGGGGD',
+  '             DGGGGGD  ','             DGGGD    ','             DGGGD    ',
+  '  D          DGGGD    ',' DDD        DGGGGGD   ',' DGGGGGGGGGGGGGGGD    ',
+  ' DLLLLLLLLLLLLLLLD    ',' DLLLLLLLLLLLLLD      ','  DLLLLLLLLLLLD       ',
+  '   DLLLLLLLLLLD       ','    DLLLLLLLLD        ','     DLLLLLLD         ',
+  '     DLLLLLD          ','     DGGGGD           ','     DD  DD           ',
+  '     DD  DD           ','     DD               ','     DD               '
+];
+const DINO_CORRE_2 = [
+  '                      ','              DDDDDDDD','              DGGGGGGD',
+  '              DGWGGGGD','              DGGGGGGD','             DGGGGGGGD',
+  '             DGGGGGD  ','             DGGGD    ','             DGGGD    ',
+  '  D          DGGGD    ',' DDD        DGGGGGD   ',' DGGGGGGGGGGGGGGGD    ',
+  ' DLLLLLLLLLLLLLLLD    ',' DLLLLLLLLLLLLLD      ','  DLLLLLLLLLLLD       ',
+  '   DLLLLLLLLLLD       ','    DLLLLLLLLD        ','     DLLLLLLD         ',
+  '     DLLLLLD          ','     DGGGGD           ','     DD  DD           ',
+  '     DD  DD           ','         DD           ','         DD           '
+];
+const DINO_AGACHADO = [
+  '                              ','                       DDDDDDD','                       DGGGGGD',
+  '                       DGWGGGD','                       DGGGGGD','                      DGGGGGGD',
+  '              DGGGGGGGGGGGGGGD','              DGGGGGGGGGGGGGGD',' D            DGGGGGGGGGGGGGGD',
+  'DDD          DGGGGGGGGGGGGGGGD','DGGGGGGGGGGGGGGGGGGGGGGGGGGGGD','DLLLLLLLLLLLLLLLLLLLLLLLLLLLLD',
+  '  DLLLLLLLLLLLLLLLLLLLLLLLD    ','    DDDD   DDDD               ','    DD      DDD               '
+];
+
+function crearSprite(mapa) {
+  const PALETA = { 'D': C_DARK, 'G': C_BODY, 'L': C_LIGHT, 'W': C_EYE };
+  const c = document.createElement('canvas');
+  c.width  = mapa[0].length * ESCALA;
+  c.height = mapa.length * ESCALA;
+  const g = c.getContext('2d');
+  for (let f = 0; f < mapa.length; f++) {
+    const fila = mapa[f];
+    for (let col = 0; col < fila.length; col++) {
+      const ch = fila[col];
+      if (PALETA[ch]) {
+        g.fillStyle = PALETA[ch];
+        g.fillRect(col * ESCALA, f * ESCALA, ESCALA, ESCALA);
+      }
+    }
+  }
+  return c;
+}
+const SPRITES_CORRE = [crearSprite(DINO_CORRE_1), crearSprite(DINO_CORRE_2)];
+const SPRITE_AGACHADO = crearSprite(DINO_AGACHADO);
+
+/* ============================================================
+   ESCENARIOS
+   ============================================================ */
+const ESCENARIOS = {
+  dia: {
+    cieloTop: [191, 224, 245], cieloMid: [232, 241, 245], cieloBot: [247, 247, 247],
+    colinas: [160, 195, 165, 0.55], nube: [255, 255, 255, 0.9],
+    tierraTop: [240, 230, 208], tierraBot: [216, 200, 168],
+    hierba: [90, 160, 58], hierbaCorta: [74, 136, 48],
+    solColor: [255, 245, 200], solHalo: [255, 235, 160],
+    solAlpha: 0.85, haloAlpha: 0.35, solY: 65,
+    luna: 0, estrellas: 0, lluvia: 0, nieve: 0, calor: 0,
+    texto: [83, 83, 83], textoSuave: [168, 168, 168]
+  },
+  tarde: {
+    cieloTop: [255, 150, 90], cieloMid: [255, 195, 140], cieloBot: [255, 230, 180],
+    colinas: [200, 130, 100, 0.55], nube: [255, 225, 210, 0.9],
+    tierraTop: [220, 180, 130], tierraBot: [180, 140, 100],
+    hierba: [180, 120, 60], hierbaCorta: [150, 100, 50],
+    solColor: [255, 180, 80], solHalo: [255, 120, 50],
+    solAlpha: 0.9, haloAlpha: 0.45, solY: 130,
+    luna: 0, estrellas: 0, lluvia: 0, nieve: 0, calor: 0,
+    texto: [80, 40, 20], textoSuave: [180, 130, 90]
+  },
+  noche: {
+    cieloTop: [10, 15, 40], cieloMid: [25, 35, 75], cieloBot: [55, 65, 105],
+    colinas: [30, 40, 70, 0.75], nube: [100, 110, 150, 0.6],
+    tierraTop: [50, 55, 85], tierraBot: [30, 35, 60],
+    hierba: [50, 95, 70], hierbaCorta: [35, 70, 50],
+    solColor: [240, 240, 255], solHalo: [200, 220, 255],
+    solAlpha: 0.95, haloAlpha: 0.30, solY: 60,
+    luna: 1, estrellas: 1, lluvia: 0, nieve: 0, calor: 0,
+    texto: [220, 220, 255], textoSuave: [150, 160, 200]
+  },
+  amanecer: {
+    cieloTop: [120, 150, 200], cieloMid: [220, 170, 160], cieloBot: [255, 220, 180],
+    colinas: [180, 150, 170, 0.6], nube: [255, 220, 215, 0.9],
+    tierraTop: [220, 200, 180], tierraBot: [180, 160, 140],
+    hierba: [140, 165, 100], hierbaCorta: [110, 130, 80],
+    solColor: [255, 220, 180], solHalo: [255, 180, 150],
+    solAlpha: 0.9, haloAlpha: 0.40, solY: 175,
+    luna: 0, estrellas: 0.35, lluvia: 0, nieve: 0, calor: 0,
+    texto: [100, 70, 80], textoSuave: [170, 150, 150]
+  },
+  lluvia: {
+    cieloTop: [70, 80, 100], cieloMid: [100, 110, 130], cieloBot: [140, 150, 170],
+    colinas: [80, 90, 110, 0.65], nube: [140, 150, 170, 0.95],
+    tierraTop: [150, 155, 165], tierraBot: [100, 105, 120],
+    hierba: [65, 105, 75], hierbaCorta: [50, 80, 55],
+    solColor: [200, 200, 210], solHalo: [150, 150, 170],
+    solAlpha: 0.30, haloAlpha: 0.20, solY: 80,
+    luna: 0, estrellas: 0, lluvia: 1, nieve: 0, calor: 0,
+    texto: [200, 210, 230], textoSuave: [130, 140, 170]
+  },
+  nieve: {
+    cieloTop: [200, 220, 240], cieloMid: [220, 235, 250], cieloBot: [240, 245, 250],
+    colinas: [200, 210, 225, 0.75], nube: [240, 245, 255, 0.9],
+    tierraTop: [245, 250, 255], tierraBot: [220, 230, 245],
+    hierba: [180, 200, 220], hierbaCorta: [160, 180, 200],
+    solColor: [255, 255, 255], solHalo: [230, 240, 255],
+    solAlpha: 0.50, haloAlpha: 0.35, solY: 70,
+    luna: 0, estrellas: 0, lluvia: 0, nieve: 1, calor: 0,
+    texto: [60, 80, 120], textoSuave: [140, 160, 190]
+  },
+  calor: {
+    cieloTop: [255, 200, 100], cieloMid: [255, 220, 150], cieloBot: [255, 240, 200],
+    colinas: [220, 180, 120, 0.6], nube: [255, 245, 225, 0.75],
+    tierraTop: [240, 210, 160], tierraBot: [210, 170, 110],
+    hierba: [180, 160, 60], hierbaCorta: [150, 130, 50],
+    solColor: [255, 230, 100], solHalo: [255, 200, 50],
+    solAlpha: 1.0, haloAlpha: 0.55, solY: 50,
+    luna: 0, estrellas: 0, lluvia: 0, nieve: 0, calor: 1,
+    texto: [120, 60, 20], textoSuave: [200, 150, 100]
+  }
+};
+const ORDEN = ['dia','tarde','noche','amanecer','lluvia','nieve','calor'];
+const NOMBRES = {
+  dia:'DÍA', tarde:'ATARDECER', noche:'NOCHE', amanecer:'AMANECER',
+  lluvia:'LLUVIA', nieve:'NIEVE', calor:'CALOR'
+};
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+function lerpColor(a,b,t){ return [lerp(a[0],b[0],t),lerp(a[1],b[1],t),lerp(a[2],b[2],t)]; }
+function rgb(c,a){
+  if (a===undefined) return `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`;
+  return `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+}
+function rgba4(c){ return `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${c[3]})`; }
+
+function blendEscenarios(a, b, t) {
+  const out = {};
+  for (const k in a) {
+    const va = a[k], vb = b[k];
+    if (Array.isArray(va)) {
+      out[k] = va.length === 4
+        ? [lerp(va[0],vb[0],t),lerp(va[1],vb[1],t),lerp(va[2],vb[2],t),lerp(va[3],vb[3],t)]
+        : lerpColor(va, vb, t);
+    } else {
+      out[k] = lerp(va, vb, t);
+    }
+  }
+  return out;
+}
+
+/* ============================================================
+   ESTADO
+   ============================================================ */
+let estado;
+let velocidad, puntos, record = 0;
+let dino, obstaculos, nubes, sueloOffset, proximoObstaculo, animacion, tiempoGameOver;
+let emergencia, siguienteMeteoro, meteoros, particulas, temblor, flash, bloqueoObstaculos;
+let escenarioActual, escenarioAnterior, transicionEscenario;
+let siguienteCambioEscenario, indiceEscenario;
+let notificacion;
+let esc;
+let gotas = [], copos = [], estrellas = [], ondasCalor = [];
+
+function initParticulasClima() {
+  gotas = [];
+  for (let i = 0; i < 130; i++) {
+    gotas.push({
+      x: Math.random()*(W+100), y: Math.random()*SUELO_Y,
+      v: 9+Math.random()*7, len: 9+Math.random()*10
+    });
+  }
+  copos = [];
+  for (let i = 0; i < 90; i++) {
+    copos.push({
+      x: Math.random()*W, y: Math.random()*SUELO_Y,
+      v: 0.7+Math.random()*1.6, r: 1.3+Math.random()*2.2,
+      fase: Math.random()*Math.PI*2, amp: 0.3+Math.random()*0.7
+    });
+  }
+  estrellas = [];
+  for (let i = 0; i < 70; i++) {
+    estrellas.push({
+      x: Math.random()*W, y: Math.random()*145,
+      r: 0.4+Math.random()*1.4, brillo: 0.45+Math.random()*0.55,
+      fase: Math.random()*Math.PI*2, vel: 0.0008+Math.random()*0.002
+    });
+  }
+  ondasCalor = [];
+  for (let i = 0; i < 14; i++) {
+    ondasCalor.push({
+      x: Math.random()*W, y: 60+Math.random()*170,
+      w: 25+Math.random()*45, fase: Math.random()*Math.PI*2,
+      vel: 0.001+Math.random()*0.0015
+    });
+  }
+}
+
+function reiniciar() {
+  estado = 'listo';
+  velocidad = VELOCIDAD_INICIAL;
+  puntos = 0;
+  sueloOffset = 0;
+  animacion = 0;
+  tiempoGameOver = 0;
+  obstaculos = [];
+  proximoObstaculo = 520;
+  emergencia = 0;
+  siguienteMeteoro = INTERVALO_METORO_SAFE();
+  meteoros = [];
+  particulas = [];
+  temblor = 0;
+  flash = 0;
+  bloqueoObstaculos = false;
+  escenarioActual = 'dia';
+  escenarioAnterior = 'dia';
+  transicionEscenario = 1;
+  indiceEscenario = 0;
+  siguienteCambioEscenario = CAMBIO_ESCENARIO;
+  notificacion = { texto: '', timer: 0 };
+  esc = blendEscenarios(ESCENARIOS.dia, ESCENARIOS.dia, 1);
+  dino = { x: 60, y: SUELO_Y-ALTO_DINO, vy: 0, enSuelo: true, agachado: false };
+  nubes = [
+    { x: 220, y: 70,  v: 0.30, s: 1.0 },
+    { x: 540, y: 115, v: 0.20, s: 0.8 },
+    { x: 760, y: 55,  v: 0.35, s: 1.1 }
+  ];
+}
+function INTERVALO_METORO_SAFE(){ return INTERVALO_METEORO; }
+
+/* ============================================================
+   OBSTÁCULOS
+   ============================================================ */
+function crearObstaculo() {
+  if (puntos > 120 && Math.random() < 0.22) {
+    obstaculos.push({ tipo:'pajaro', x:W+20, y:SUELO_Y-62, ancho:46, alto:26, aleteo:0 });
+    return;
+  }
+  let cantidad, alto;
+  if (Math.random() < 0.55) { cantidad = 1+Math.floor(Math.random()*3); alto = 34+Math.random()*10; }
+  else                      { cantidad = 1+Math.floor(Math.random()*2); alto = 52+Math.random()*12; }
+  obstaculos.push({
+    tipo:'cactus', x:W+20, y:SUELO_Y-alto,
+    ancho:(cantidad-1)*24+22, alto, cantidad
+  });
+}
+
+function crearMeteoro() {
+  obstaculos = [];
+  bloqueoObstaculos = true;
+  meteoros.push({
+    x: 500+Math.random()*240, y: -100, vy: 0,
+    fase: 'aviso', timer: 0, duracionAviso: 78
+  });
+}
+
+function crearExplosion(x, y) {
+  for (let i = 0; i < 32; i++) {
+    const ang = Math.random()*Math.PI*2;
+    const vel = 2+Math.random()*8;
+    particulas.push({
+      x, y,
+      vx: Math.cos(ang)*vel, vy: Math.sin(ang)*vel - 4,
+      vida: 26+Math.random()*22, vidaMax: 48,
+      tipo: 'fuego'
+    });
+  }
+  for (let i = 0; i < 12; i++) {
+    const ang = Math.random()*Math.PI*2;
+    const vel = 1+Math.random()*4;
+    particulas.push({
+      x, y,
+      vx: Math.cos(ang)*vel, vy: Math.sin(ang)*vel - 1,
+      vida: 30+Math.random()*20, vidaMax: 50,
+      tipo: 'humo'
+    });
+  }
+}
+
+function crearPolvo(x, y, cantidad) {
+  for (let i = 0; i < cantidad; i++) {
+    particulas.push({
+      x: x + (Math.random()-0.5)*20,
+      y,
+      vx: (Math.random()-0.5)*2.5,
+      vy: -Math.random()*1.5,
+      vida: 14+Math.random()*10, vidaMax: 24,
+      tipo: 'polvo'
+    });
+  }
+}
+
+/* ============================================================
+   CACHES DE GRADIENTES
+   ============================================================ */
+let _cacheCielo = null;
+let _cacheSuelo = null;
+let _cacheKey = '';
+
+function syncCache() {
+  const k = escenarioActual + '|' + escenarioAnterior + '|' + Math.round(transicionEscenario*50);
+  if (k !== _cacheKey) {
+    _cacheKey = k;
+    _cacheCielo = null;
+    _cacheSuelo = null;
+  }
+}
+
+function getCieloGrad() {
+  if (_cacheCielo) return _cacheCielo;
+  const g = ctx.createLinearGradient(0, 0, 0, SUELO_Y);
+  g.addColorStop(0,   rgb(esc.cieloTop));
+  g.addColorStop(0.6, rgb(esc.cieloMid));
+  g.addColorStop(1,   rgb(esc.cieloBot));
+  _cacheCielo = g;
+  return g;
+}
+function getSueloGrad() {
+  if (_cacheSuelo) return _cacheSuelo;
+  const g = ctx.createLinearGradient(0, SUELO_Y+3, 0, H);
+  g.addColorStop(0, rgb(esc.tierraTop));
+  g.addColorStop(1, rgb(esc.tierraBot));
+  _cacheSuelo = g;
+  return g;
+}
+
+/* ============================================================
+   FONDO
+   ============================================================ */
+function dibujarCielo() {
+  ctx.fillStyle = getCieloGrad();
+  ctx.fillRect(0, 0, W, SUELO_Y);
+}
+
+function dibujarEstrellas() {
+  if (esc.estrellas < 0.05) return;
+  const t = performance.now();
+  ctx.beginPath();
+  for (const e of estrellas) {
+    const tw = 0.55 + 0.45*Math.sin(t*e.vel + e.fase);
+    const a = esc.estrellas * e.brillo * tw;
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.r, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function dibujarAstro() {
+  const x = 690, y = esc.solY;
+  // Glow exterior suave
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = esc.haloAlpha;
+  const glowR = 130;
+  ctx.drawImage(esc.luna > 0.5 ? GLOW_WHITE : GLOW_YELLOW,
+                x-glowR, y-glowR, glowR*2, glowR*2);
+  ctx.restore();
+
+  // Cuerpo del sol/luna
+  ctx.fillStyle = rgb(esc.solColor, esc.solAlpha);
+  ctx.beginPath(); ctx.arc(x, y, 30, 0, Math.PI*2); ctx.fill();
+
+  // Cráteres de la luna
+  if (esc.luna > 0.25) {
+    ctx.fillStyle = `rgba(180,190,215,${esc.luna*0.55})`;
+    ctx.beginPath(); ctx.arc(x-8, y-5, 4.2, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+7, y+3, 3.2, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x-2, y+9, 2.4, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+function dibujarOndasCalor() {
+  if (esc.calor < 0.05) return;
+  const t = performance.now();
+  ctx.strokeStyle = `rgba(255,180,80,${esc.calor*0.28})`;
+  ctx.lineWidth = 1.5;
+  for (const o of ondasCalor) {
+    const yy = o.y + Math.sin(t*o.vel + o.fase)*4;
+    const xx = o.x + Math.sin(t*o.vel*0.7 + o.fase*1.3)*10;
+    ctx.beginPath();
+    ctx.moveTo(xx, yy);
+    ctx.quadraticCurveTo(xx+o.w/2, yy-3, xx+o.w, yy);
+    ctx.stroke();
+  }
+}
+
+function dibujarColinas() {
+  const off = (sueloOffset*0.28) % 320;
+  ctx.fillStyle = rgba4(esc.colinas);
+  for (let i = -1; i < 5; i++) {
+    const x = i*320 - off;
+    ctx.beginPath(); ctx.arc(x+90,  SUELO_Y, 110, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(x+250, SUELO_Y, 75,  Math.PI, 0); ctx.fill();
+  }
+}
+
+function dibujarNube(n) {
+  const s = n.s;
+  ctx.fillStyle = rgba4(esc.nube);
+  ctx.beginPath();
+  ctx.ellipse(n.x,          n.y,         26*s, 11*s, 0, 0, Math.PI*2);
+  ctx.ellipse(n.x+20*s,     n.y-7*s,     17*s,  9*s, 0, 0, Math.PI*2);
+  ctx.ellipse(n.x-19*s,     n.y-3*s,     15*s,  8*s, 0, 0, Math.PI*2);
+  ctx.fill();
+}
+
+/* ============================================================
+   SUELO
+   ============================================================ */
+function dibujarSuelo() {
+  ctx.fillStyle = getSueloGrad();
+  ctx.fillRect(0, SUELO_Y+3, W, H-SUELO_Y-3);
+
+  const brillo = (esc.tierraTop[0] + esc.tierraTop[1] + esc.tierraTop[2]) / 3;
+  const lineOscura = brillo > 130 ? 'rgba(90,75,45,1)' : 'rgba(30,30,50,1)';
+  const lineClara  = brillo > 130 ? 'rgba(150,130,90,0.9)' : 'rgba(80,85,120,0.9)';
+
+  ctx.fillStyle = lineOscura; ctx.fillRect(0, SUELO_Y, W, 2);
+  ctx.fillStyle = lineClara;  ctx.fillRect(0, SUELO_Y-1, W, 1);
+
+  // Hierba
+  const offGrass = sueloOffset % 85;
+  const h1 = rgb(esc.hierba);
+  const h2 = rgb(esc.hierbaCorta);
+  for (let x = -offGrass; x < W+85; x += 85) {
+    ctx.fillStyle = h1;
+    ctx.beginPath(); ctx.moveTo(x+10, SUELO_Y+1); ctx.lineTo(x+11, SUELO_Y-9);  ctx.lineTo(x+12, SUELO_Y+1); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x+12, SUELO_Y+1); ctx.lineTo(x+14, SUELO_Y-11); ctx.lineTo(x+15, SUELO_Y+1); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x+15, SUELO_Y+1); ctx.lineTo(x+17, SUELO_Y-8);  ctx.lineTo(x+18, SUELO_Y+1); ctx.fill();
+    ctx.fillStyle = h2;
+    ctx.beginPath(); ctx.moveTo(x+52, SUELO_Y+1); ctx.lineTo(x+53, SUELO_Y-6); ctx.lineTo(x+54, SUELO_Y+1); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x+54, SUELO_Y+1); ctx.lineTo(x+55, SUELO_Y-8); ctx.lineTo(x+56, SUELO_Y+1); ctx.fill();
+  }
+
+  // Piedritas
+  const offPebble = (sueloOffset*0.9) % 55;
+  for (let x = -offPebble; x < W+55; x += 55) {
+    ctx.fillStyle = brillo > 130 ? '#b8a880' : '#404a70';
+    ctx.beginPath(); ctx.ellipse(x+25, SUELO_Y+10, 4, 2.5, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = brillo > 130 ? '#d0c0a0' : '#6070a0';
+    ctx.beginPath(); ctx.ellipse(x+24, SUELO_Y+9, 1.5, 1, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = brillo > 130 ? '#a89870' : '#303a60';
+    ctx.beginPath(); ctx.ellipse(x+42, SUELO_Y+22, 3, 2, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Guiones
+  const offDash = (sueloOffset*1.15) % 50;
+  ctx.fillStyle = brillo > 130 ? 'rgba(130,115,85,0.6)' : 'rgba(150,170,220,0.4)';
+  for (let x = -offDash; x < W+50; x += 50) {
+    ctx.fillRect(x+8,  SUELO_Y+6,  10, 1.5);
+    ctx.fillRect(x+30, SUELO_Y+16, 7,  1.5);
+  }
+}
+
+/* ============================================================
+   CLIMA
+   ============================================================ */
+function dibujarLluvia() {
+  if (esc.lluvia < 0.05) return;
+  ctx.strokeStyle = `rgba(180,200,255,${esc.lluvia*0.75})`;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (const g of gotas) {
+    ctx.moveTo(g.x, g.y);
+    ctx.lineTo(g.x - g.len*0.35, g.y + g.len);
+  }
+  ctx.stroke();
+}
+
+function dibujarNieve() {
+  if (esc.nieve < 0.05) return;
+  const t = performance.now();
+  ctx.fillStyle = `rgba(255,255,255,${esc.nieve*0.92})`;
+  ctx.beginPath();
+  for (const c of copos) {
+    const sway = Math.sin(t*0.002 + c.fase)*c.amp*3;
+    ctx.moveTo(c.x + sway + c.r, c.y);
+    ctx.arc(c.x + sway, c.y, c.r, 0, Math.PI*2);
+  }
+  ctx.fill();
+}
+
+function actualizarParticulasClima(dt) {
+  for (const g of gotas) {
+    g.y += g.v*dt;
+    g.x -= g.v*0.35*dt;
+    if (g.y > SUELO_Y+5) { g.y = -20; g.x = Math.random()*(W+80); }
+    if (g.x < -25) g.x = W+25;
+  }
+  for (const c of copos) {
+    c.y += c.v*dt;
+    c.fase += 0.02*dt;
+    if (c.y > SUELO_Y) { c.y = -10; c.x = Math.random()*W; }
+  }
+}
+
+/* ============================================================
+   OBSTÁCULOS VISUALES
+   ============================================================ */
+function dibujarCactus(o) {
+  const h = o.alto;
+  for (let i = 0; i < o.cantidad; i++) {
+    const cx = o.x + i*24, y = o.y;
+    // Sombra
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(cx+2, y+h*0.30, 6, h*0.20+5);
+    ctx.fillRect(cx+16, y+h*0.20, 6, h*0.20+5);
+    ctx.fillRect(cx+8, y, 8, h);
+    // Cuerpo
+    ctx.fillStyle = C_CACTUS;
+    ctx.fillRect(cx+8, y, 8, h);
+    ctx.fillRect(cx+2, y+h*0.30, 6, h*0.20+5);
+    ctx.fillRect(cx+2, y+h*0.50, 8, 5);
+    ctx.fillRect(cx+16, y+h*0.20, 6, h*0.20+5);
+    ctx.fillRect(cx+14, y+h*0.40, 8, 5);
+    // Highlight derecha
+    ctx.fillStyle = 'rgba(140,210,140,0.35)';
+    ctx.fillRect(cx+14, y+2, 2, h-4);
+    ctx.fillRect(cx+6, y+h*0.32, 1.5, h*0.18);
+  }
+}
+
+function colorPajaro() {
+  const b = (esc.cieloMid[0] + esc.cieloMid[1] + esc.cieloMid[2]) / 3;
+  if (b < 90)  return { fill: '#e8e8ff', stroke: '#1a1a3a' };
+  if (b < 155) return { fill: '#242434', stroke: '#d8d8f0' };
+  return { fill: '#3a3a3a', stroke: '#9a9a9a' };
+}
+
+function dibujarPajaro(p) {
+  const col = colorPajaro();
+  const x = p.x, y = p.y;
+  const piezas = [
+    [x,      y+12, 12, 4],
+    [x+10,   y+10, 24, 8],
+    [x+30,   y+6,  10, 10],
+    [x+38,   y+10, 8,  4]
+  ];
+  if (p.aleteo) piezas.push([x+8, y,      20, 10]);
+  else          piezas.push([x+8, y+16,   20, 10]);
+  ctx.fillStyle = col.stroke;
+  for (const r of piezas) ctx.fillRect(r[0]-1, r[1]-1, r[2]+2, r[3]+2);
+  ctx.fillStyle = col.fill;
+  for (const r of piezas) ctx.fillRect(r[0], r[1], r[2], r[3]);
+}
+
+function dibujarFuego(o) {
+  const x = o.x, y = o.y, w = o.ancho, h = o.alto;
+  const t = o.animFuego || 0;
+  const f1 = Math.sin(t*0.15)*4, f2 = Math.cos(t*0.22)*5, f3 = Math.sin(t*0.31)*3;
+
+  // Glow cálido detrás
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.55;
+  const gr = w*0.95;
+  ctx.drawImage(GLOW_ORANGE, x + w/2 - gr, y + h*0.55 - gr, gr*2, gr*2);
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(90,15,0,0.6)';
+  ctx.fillRect(x, y+h*0.55, w, h*0.45);
+
+  ctx.fillStyle = '#e63100';
+  ctx.beginPath();
+  ctx.moveTo(x, y+h);
+  ctx.quadraticCurveTo(x+w*0.05+f1, y+h*0.40, x+w*0.25, y+h*0.20);
+  ctx.quadraticCurveTo(x+w*0.40+f2, y-6,     x+w*0.55, y+h*0.15);
+  ctx.quadraticCurveTo(x+w*0.75+f3, y-12,    x+w*0.85, y+h*0.25);
+  ctx.quadraticCurveTo(x+w,         y+h*0.50, x+w,     y+h);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = '#ff8800';
+  ctx.beginPath();
+  ctx.moveTo(x+w*0.10, y+h);
+  ctx.quadraticCurveTo(x+w*0.20+f1, y+h*0.40, x+w*0.40, y+h*0.25);
+  ctx.quadraticCurveTo(x+w*0.60+f2, y+h*0.10, x+w*0.75, y+h*0.35);
+  ctx.quadraticCurveTo(x+w*0.90,    y+h*0.60, x+w*0.90, y+h);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = '#ffd200';
+  ctx.beginPath();
+  ctx.moveTo(x+w*0.25, y+h);
+  ctx.quadraticCurveTo(x+w*0.35, y+h*0.50, x+w*0.50, y+h*0.35);
+  ctx.quadraticCurveTo(x+w*0.65, y+h*0.50, x+w*0.75, y+h);
+  ctx.closePath(); ctx.fill();
+
+  for (let i = 0; i < 7; i++) {
+    const tt = (t*2 + i*22) % 55;
+    const ey = y + h - tt*2.2;
+    const ex = x + 8 + i*7 + Math.sin(tt*0.15 + i)*8;
+    const al = Math.max(0, 1 - tt/55);
+    ctx.fillStyle = `rgba(255,${150+i*15},40,${al})`;
+    ctx.fillRect(ex, ey, 3, 3);
+  }
+}
+
+/* ============================================================
+   METEOROS
+   ============================================================ */
+function dibujarAvisoMeteoro(m) {
+  const pulso = 0.5 + 0.5*Math.sin(performance.now()/100);
+  const prog = m.timer / m.duracionAviso;
+
+  const grad = ctx.createLinearGradient(0, 0, 0, SUELO_Y);
+  grad.addColorStop(0, 'rgba(255,40,0,0)');
+  grad.addColorStop(1, `rgba(255,40,0,${0.35*pulso})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(m.x-32, 0, 64, SUELO_Y);
+
+  ctx.strokeStyle = 'rgba(255,50,0,0.85)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.ellipse(m.x, SUELO_Y-3, 40, 12, 0, 0, Math.PI*2); ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255,170,30,1)';
+  ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.ellipse(m.x, SUELO_Y-3, 40*(1-prog*0.85), 12*(1-prog*0.85), 0, 0, Math.PI*2); ctx.stroke();
+
+  ctx.fillStyle = `rgba(255,50,0,${0.7+0.3*pulso})`;
+  ctx.font = 'bold 34px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('!', m.x, SUELO_Y - 40);
+
+  ctx.fillStyle = `rgba(255,140,0,${0.5+0.5*pulso})`;
+  ctx.beginPath(); ctx.arc(m.x, 22, 11, 0, Math.PI*2); ctx.fill();
+}
+
+function dibujarMeteoro(m) {
+  // Glow aditivo detrás
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.9;
+  const gr = 70;
+  ctx.drawImage(GLOW_ORANGE, m.x-gr, m.y-gr, gr*2, gr*2);
+  ctx.restore();
+
+  // Estela
+  const grad = ctx.createLinearGradient(m.x, m.y-140, m.x, m.y);
+  grad.addColorStop(0,   'rgba(255,100,0,0)');
+  grad.addColorStop(0.7, 'rgba(255,100,0,0.7)');
+  grad.addColorStop(1,   'rgba(255,100,0,0.95)');
+  ctx.strokeStyle = grad; ctx.lineWidth = 16; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(m.x, m.y-140); ctx.lineTo(m.x, m.y); ctx.stroke();
+
+  // Cabeza
+  const gradC = ctx.createRadialGradient(m.x-5, m.y-5, 2, m.x, m.y, 20);
+  gradC.addColorStop(0,   '#fff2a0');
+  gradC.addColorStop(0.35,'#ff8800');
+  gradC.addColorStop(1,   '#5a1000');
+  ctx.fillStyle = gradC;
+  ctx.beginPath(); ctx.arc(m.x, m.y, 20, 0, Math.PI*2); ctx.fill();
+
+  // Chispas
+  for (let i = 0; i < 5; i++) {
+    const ang = Math.random()*Math.PI*2;
+    const d = 18 + Math.random()*22;
+    ctx.fillStyle = `rgba(255,200,100,${Math.random()})`;
+    ctx.fillRect(m.x + Math.cos(ang)*d, m.y + Math.sin(ang)*d, 2, 2);
+  }
+}
+
+/* ============================================================
+   DINO
+   ============================================================ */
+function dibujarSombraDino() {
+  const alt = SUELO_Y - ALTO_DINO - dino.y;
+  const f = Math.max(0.25, 1 - alt/110);
+  const cx = dino.x + ANCHO_DINO/2;
+  const cy = SUELO_Y - 1;
+  const rx = 22 * f;
+  const ry = 5 * f;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(1, ry/rx);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+  g.addColorStop(0, `rgba(0,0,0,${0.30 * f})`);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(0, 0, rx, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function dibujarDino() {
+  if (estado === 'emergiendo') {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, W, SUELO_Y); ctx.clip();
+    if (emergencia > 0.05 && emergencia < 0.95) {
+      ctx.fillStyle = `rgba(180,180,180,${0.75*(1-emergencia)})`;
+      const radio = 12 + emergencia*22;
+      ctx.beginPath();
+      ctx.ellipse(dino.x + ANCHO_DINO/2, SUELO_Y-3, radio, radio*0.35, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.drawImage(SPRITES_CORRE[0], Math.round(dino.x), Math.round(SUELO_Y - ALTO_DINO*emergencia));
+    ctx.restore();
+    return;
+  }
+  if (dino.agachado && dino.enSuelo) {
+    ctx.drawImage(SPRITE_AGACHADO, Math.round(dino.x), Math.round(SUELO_Y - ALTO_DINO_AGACHADO));
+  } else {
+    const frame = dino.enSuelo ? Math.floor(animacion)%2 : 0;
+    ctx.drawImage(SPRITES_CORRE[frame], Math.round(dino.x), Math.round(dino.y));
+  }
+}
+
+/* ============================================================
+   PARTÍCULAS
+   ============================================================ */
+function dibujarParticulas() {
+  if (particulas.length === 0) return;
+
+  // Fuego (aditivo)
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of particulas) {
+    if (p.tipo !== 'fuego') continue;
+    const al = Math.max(0, p.vida / p.vidaMax);
+    const r = (1-al)*14 + 8;
+    ctx.globalAlpha = al;
+    ctx.drawImage(GLOW_ORANGE, p.x-r, p.y-r, r*2, r*2);
+  }
+  ctx.restore();
+
+  // Humo (normal, gris)
+  for (const p of particulas) {
+    if (p.tipo !== 'humo') continue;
+    const al = Math.max(0, p.vida / p.vidaMax);
+    ctx.fillStyle = `rgba(90,80,70,${al*0.5})`;
+    const r = (1-al)*10 + 4;
+    ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.fill();
+  }
+
+  // Polvo
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  for (const p of particulas) {
+    if (p.tipo !== 'polvo') continue;
+    const al = Math.max(0, p.vida / p.vidaMax);
+    const r = (1-al)*8 + 6;
+    ctx.globalAlpha = al * 0.6;
+    ctx.drawImage(GLOW_DUST, p.x-r, p.y-r, r*2, r*2);
+  }
+  ctx.restore();
+}
+
+/* ============================================================
+   HUD
+   ============================================================ */
+function dibujarHUD() {
+  ctx.font = 'bold 17px "Courier New", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = rgb(esc.textoSuave);
+  ctx.fillText('HI ' + String(record).padStart(5,'0'), W-130, 38);
+  ctx.fillStyle = rgb(esc.texto);
+  ctx.fillText(String(Math.floor(puntos)).padStart(5,'0'), W-30, 38);
+}
+
+function dibujarNotificacion() {
+  if (notificacion.timer <= 0) return;
+  const a = Math.min(1, notificacion.timer);
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 22px "Courier New", monospace';
+  ctx.fillStyle = rgb(esc.texto);
+  ctx.fillText(notificacion.texto, W/2, 60);
+  ctx.restore();
+}
+
+/* ============================================================
+   DIBUJADO PRINCIPAL
+   ============================================================ */
+function dibujar() {
+  syncCache();
+
+  ctx.save();
+  if (temblor > 0) {
+    const mag = temblor*6;
+    ctx.translate((Math.random()-0.5)*mag, (Math.random()-0.5)*mag);
+  }
+
+  dibujarCielo();
+  dibujarEstrellas();
+  dibujarAstro();
+  dibujarOndasCalor();
+  dibujarColinas();
+  for (const n of nubes) dibujarNube(n);
+  dibujarSuelo();
+
+  // Meteoros
+  for (const m of meteoros) {
+    if (m.fase === 'aviso')        dibujarAvisoMeteoro(m);
+    else if (m.fase === 'cayendo') dibujarMeteoro(m);
+  }
+
+  // Obstáculos
+  for (const o of obstaculos) {
+    if (o.tipo === 'pajaro')     dibujarPajaro(o);
+    else if (o.tipo === 'fuego') dibujarFuego(o);
+    else                          dibujarCactus(o);
+  }
+
+  // Partículas
+  dibujarParticulas();
+
+  // Dino
+  dibujarSombraDino();
+  dibujarDino();
+
+  // Clima delante
+  dibujarNieve();
+  dibujarLluvia();
+
+  // Tintes atmosféricos
+  if (esc.lluvia > 0.05) {
+    ctx.fillStyle = `rgba(40,50,80,${esc.lluvia*0.10})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (esc.calor > 0.05) {
+    ctx.fillStyle = `rgba(255,150,50,${esc.calor*0.07})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (esc.nieve > 0.05) {
+    ctx.fillStyle = `rgba(180,200,255,${esc.nieve*0.06})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Vignette (dibujada a resolución nativa, sin escalar)
+  ctx.drawImage(vignetteCanvas, 0, 0, W, H);
+
+  dibujarHUD();
+  dibujarNotificacion();
+
+  if (estado === 'listo') {
+    const pulso = 0.55 + 0.45*Math.sin(performance.now()/300);
+    ctx.globalAlpha = pulso;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 15px "Courier New", monospace';
+    ctx.fillStyle = rgb(esc.textoSuave);
+    ctx.fillText('PULSA ESPACIO PARA EMPEZAR', W/2, 105);
+    ctx.globalAlpha = 1;
+  }
+  if (estado === 'gameover') {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = rgb(esc.texto);
+    ctx.font = 'bold 30px "Courier New", monospace';
+    ctx.fillText('GAME OVER', W/2, 105);
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillStyle = rgb(esc.textoSuave);
+    ctx.fillText('PULSA ESPACIO PARA REINTENTAR', W/2, 135);
+  }
+
+  ctx.restore();
+
+  if (flash > 0) {
+    ctx.fillStyle = `rgba(255,240,200,${flash*0.55})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+/* ============================================================
+   LÓGICA
+   ============================================================ */
+function saltar() {
+  if (estado !== 'jugando') return;
+  if (dino.enSuelo) {
+    dino.vy = IMPULSO_SALTO;
+    dino.enSuelo = false;
+    dino.agachado = false;
+    crearPolvo(dino.x + ANCHO_DINO/2, SUELO_Y - 2, 6);
+  }
+}
+
+function cajaDino() {
+  if (dino.agachado && dino.enSuelo) {
+    return { x: dino.x+5, y: SUELO_Y-ALTO_DINO_AGACHADO+5, w: ANCHO_DINO_AGACHADO-12, h: ALTO_DINO_AGACHADO-10 };
+  }
+  return { x: dino.x+9, y: dino.y+5, w: ANCHO_DINO-18, h: ALTO_DINO-8 };
+}
+
+function hayColision(o) {
+  const d = cajaDino();
+  let ox, oy, ow, oh;
+  if (o.tipo === 'pajaro')     { ox=o.x+8; oy=o.y+4;  ow=32; oh=18; }
+  else if (o.tipo === 'fuego') { ox=o.x+8; oy=o.y+20; ow=o.ancho-16; oh=o.alto-20; }
+  else                         { ox=o.x+5; oy=o.y+3;  ow=o.ancho-9; oh=o.alto-4; }
+  return d.x < ox+ow && d.x+d.w > ox && d.y < oy+oh && d.y+d.h > oy;
+}
+
+function actualizar(dt) {
+  if (temblor > 0) { temblor -= dt*0.08; if (temblor < 0) temblor = 0; }
+  if (flash   > 0) { flash   -= dt*0.06; if (flash   < 0) flash   = 0; }
+  if (notificacion.timer > 0) notificacion.timer -= dt/60;
+
+  if (transicionEscenario < 1) {
+    transicionEscenario += dt / (60 * DURACION_TRANSICION);
+    if (transicionEscenario > 1) transicionEscenario = 1;
+  }
+  esc = blendEscenarios(ESCENARIOS[escenarioAnterior], ESCENARIOS[escenarioActual], transicionEscenario);
+
+  const factorNubes = (estado === 'jugando' || estado === 'emergiendo') ? 1 : 0.25;
+  for (const n of nubes) {
+    n.x -= n.v * dt * factorNubes * (velocidad / VELOCIDAD_INICIAL);
+    if (n.x < -70) {
+      n.x = W + 60 + Math.random()*220;
+      n.y = 40 + Math.random()*95;
+      n.s = 0.7 + Math.random()*0.5;
+    }
+  }
+
+  if (estado === 'jugando') animacion += dt * 0.15 * (velocidad / VELOCIDAD_INICIAL);
+
+  actualizarParticulasClima(dt);
+
+  for (let i = particulas.length-1; i >= 0; i--) {
+    const p = particulas[i];
+    p.x += p.vx*dt;
+    p.y += p.vy*dt;
+    if (p.tipo === 'humo') { p.vy -= 0.05*dt; p.vx *= 0.99; }
+    else { p.vy += 0.3*dt; p.vx *= 0.98; }
+    p.vida -= dt;
+    if (p.vida <= 0) particulas.splice(i, 1);
+  }
+
+  if (estado === 'gameover') { tiempoGameOver += dt; return; }
+
+  if (estado === 'emergiendo') {
+    emergencia += dt * 0.025;
+    if (emergencia >= 1) { emergencia = 1; estado = 'jugando'; }
+    return;
+  }
+  if (estado !== 'jugando') return;
+
+  velocidad = Math.min(VELOCIDAD_MAXIMA, velocidad + ACELERACION*dt);
+  puntos   += velocidad * dt * 0.03;
+  sueloOffset += velocidad * dt;
+
+  if (puntos >= siguienteCambioEscenario) {
+    escenarioAnterior = escenarioActual;
+    indiceEscenario = (indiceEscenario + 1) % ORDEN.length;
+    escenarioActual = ORDEN[indiceEscenario];
+    transicionEscenario = 0;
+    siguienteCambioEscenario += CAMBIO_ESCENARIO;
+    notificacion = { texto: NOMBRES[escenarioActual], timer: 2.2 };
+  }
+
+  if (!dino.enSuelo) {
+    dino.vy += GRAVEDAD*dt;
+    dino.y  += dino.vy*dt;
+    if (dino.y >= SUELO_Y - ALTO_DINO) {
+      dino.y = SUELO_Y - ALTO_DINO;
+      dino.vy = 0;
+      dino.enSuelo = true;
+      crearPolvo(dino.x + ANCHO_DINO/2, SUELO_Y - 2, 5);
+    }
+  }
+
+  if (puntos >= siguienteMeteoro) {
+    crearMeteoro();
+    siguienteMeteoro += INTERVALO_METEORO;
+  }
+  for (let i = meteoros.length-1; i >= 0; i--) {
+    const m = meteoros[i];
+    if (m.fase === 'aviso') {
+      m.timer += dt;
+      if (m.timer >= m.duracionAviso) { m.fase = 'cayendo'; m.y = -100; m.vy = 3; }
+    } else if (m.fase === 'cayendo') {
+      m.vy += 0.55*dt; m.y += m.vy*dt;
+      if (m.y >= SUELO_Y - 20) {
+        m.fase = 'impacto'; m.timer = 0;
+        obstaculos.push({ tipo:'fuego', x:m.x-25, y:SUELO_Y-70, ancho:50, alto:70, animFuego:0 });
+        crearExplosion(m.x, SUELO_Y - 12);
+        temblor = 1; flash = 1;
+      }
+    } else if (m.fase === 'impacto') {
+      m.timer += dt;
+      if (m.timer > 15) meteoros.splice(i, 1);
+    }
+  }
+
+  const meteorActivo = bloqueoObstaculos && (meteoros.length > 0 || obstaculos.some(o => o.tipo === 'fuego'));
+  if (!meteorActivo) {
+    if (bloqueoObstaculos) { bloqueoObstaculos = false; proximoObstaculo = 340 + Math.random()*120; }
+    proximoObstaculo -= velocidad*dt;
+    if (proximoObstaculo <= 0) {
+      crearObstaculo();
+      proximoObstaculo = 320 + Math.random()*280 + velocidad*12;
+    }
+  }
+
+  for (const o of obstaculos) {
+    o.x -= velocidad*dt;
+    if (o.tipo === 'pajaro')      o.aleteo = (Math.floor(performance.now()/180) % 2);
+    else if (o.tipo === 'fuego')  o.animFuego = (o.animFuego || 0) + dt;
+  }
+  obstaculos = obstaculos.filter(o => o.x + o.ancho > -60);
+
+  for (const o of obstaculos) {
+    if (hayColision(o)) {
+      estado = 'gameover'; tiempoGameOver = 0;
+      record = Math.max(record, Math.floor(puntos));
+      temblor = 1; break;
+    }
+  }
+}
+
+/* ============================================================
+   BUCLE Y CONTROLES
+   ============================================================ */
+let ultimoTiempo = 0;
+function bucle(t) {
+  if (!ultimoTiempo) ultimoTiempo = t;
+  let dt = (t - ultimoTiempo) / (1000/60);
+  ultimoTiempo = t;
+  dt = Math.min(dt, 3);
+  actualizar(dt);
+  dibujar();
+  requestAnimationFrame(bucle);
+}
+
+function accion() {
+  if (estado === 'listo') { estado = 'emergiendo'; emergencia = 0; return; }
+  if (estado === 'jugando') { saltar(); return; }
+  if (estado === 'gameover' && tiempoGameOver > 0.5) {
+    reiniciar(); estado = 'emergiendo'; emergencia = 0;
+  }
+}
+
+window.addEventListener('keydown', (e) => {
+  if (['Space','ArrowUp','ArrowDown','KeyW','KeyS'].includes(e.code)) e.preventDefault();
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') {
+    if (estado === 'jugando') dino.agachado = true;
+    return;
+  }
+  if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+    if (!e.repeat) accion();
+  }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'ArrowDown' || e.code === 'KeyS') dino.agachado = false;
+});
+canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); accion(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) ultimoTiempo = 0; });
+
+/* ============================================================
+   ARRANCAR
+   ============================================================ */
+initParticulasClima();
+reiniciar();
+requestAnimationFrame(bucle);
+</script>
+</body>
+</html>
